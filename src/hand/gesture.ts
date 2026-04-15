@@ -58,6 +58,16 @@ function fingerFolded(
   return dist3(lm[tipIdx], wrist) < dist3(lm[mcpIdx], wrist) * 1.2;
 }
 
+export function isFist(lm: NormalizedLandmark[]): boolean {
+  if (lm.length < 21) return false;
+  return (
+    fingerFolded(lm, LANDMARK.INDEX_TIP, LANDMARK.INDEX_MCP) &&
+    fingerFolded(lm, LANDMARK.MIDDLE_TIP, LANDMARK.MIDDLE_MCP) &&
+    fingerFolded(lm, LANDMARK.RING_TIP, LANDMARK.RING_MCP) &&
+    fingerFolded(lm, LANDMARK.PINKY_TIP, LANDMARK.PINKY_MCP)
+  );
+}
+
 export function isGunPose(lm: NormalizedLandmark[]): boolean {
   if (lm.length < 21) return false;
 

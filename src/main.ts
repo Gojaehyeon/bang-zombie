@@ -1,6 +1,15 @@
 import { createHandLandmarker } from "./hand/tracker";
 import { HAND_CONNECTIONS, LANDMARK, isGunPose } from "./hand/gesture";
 import { createFaceLandmarker, readBlinkScore } from "./face/tracker";
+import {
+  createGame,
+  resetGame,
+  updateGame,
+  resolveHit,
+  drawGame,
+  drawHud,
+} from "./game/world";
+import { play as playSfx, unlockAudio } from "./audio/sfx";
 import type { HandLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision";
 
 const video = document.getElementById("video") as HTMLVideoElement;
@@ -20,8 +29,8 @@ const cursor = { x: 0.5, y: 0.5, active: false };
 // Blink-to-fire: the user blinks to shoot. An edge-triggered detector with
 // hysteresis avoids spamming: eyes must fully open again before the next
 // shot will register.
-const BLINK_FIRE = 0.6;
-const BLINK_RESET = 0.35;
+const BLINK_FIRE = 0.4;
+const BLINK_RESET = 0.2;
 const SHOT_COOLDOWN_MS = 220;
 const blink = {
   closed: false,
@@ -29,18 +38,29 @@ const blink = {
   score: 0,
 };
 
-type Shot = { x: number; y: number; t: number };
+type Shot = { x: number; y: number; t: number; hit: boolean };
 const shots: Shot[] = [];
 const SHOT_LIFETIME_MS = 700;
-let shotCount = 0;
+
+const game = createGame(performance.now());
+game.onSound = (name) => playSfx(name);
+
+window.addEventListener("keydown", (e) => {
+  unlockAudio();
+  if ((e.key === "Enter" || e.key === " ") && game.over) {
+    resetGame(game, performance.now());
+  }
+});
+window.addEventListener("pointerdown", unlockAudio, { once: false });
 
 function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 function fireShot(now: number) {
-  shots.push({ x: cursor.x, y: cursor.y, t: now });
-  shotCount++;
+  playSfx("shot");
+  const hit = resolveHit(game, cursor.x, cursor.y, now);
+  shots.push({ x: cursor.x, y: cursor.y, t: now, hit });
 }
 
 function updateCursor(tip: { x: number; y: number }) {
@@ -60,7 +80,7 @@ function updateBlink(score: number, now: number, gunPose: boolean) {
   blink.score = score;
   if (!blink.closed && score > BLINK_FIRE) {
     blink.closed = true;
-    if (gunPose && now - blink.lastShotAt > SHOT_COOLDOWN_MS) {
+    if (gunPose && !game.over && now - blink.lastShotAt > SHOT_COOLDOWN_MS) {
       fireShot(now);
       blink.lastShotAt = now;
     }
@@ -82,7 +102,7 @@ function drawShots(now: number) {
     const cy = s.y * canvas.height;
     ctx.save();
     ctx.globalAlpha = k;
-    ctx.strokeStyle = "#ffdd33";
+    ctx.strokeStyle = s.hit ? "#66ff88" : "#ffdd33";
     ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.arc(cx, cy, 14 + (1 - k) * 40, 0, Math.PI * 2);
@@ -215,19 +235,24 @@ function drawPoseLabel(gunPose: boolean, blinkScore: number) {
 
 async function loop(hand: HandLandmarker, face: FaceLandmarker) {
   let lastTs = -1;
+  let lastRealTs = performance.now();
   const tick = () => {
     if (video.readyState >= 2) {
       if (canvas.width !== video.videoWidth) resizeCanvas();
       const ts = performance.now();
       if (ts !== lastTs) {
         lastTs = ts;
+        const dt = Math.min((ts - lastRealTs) / 1000, 0.05);
+        lastRealTs = ts;
+
         const handResult = hand.detectForVideo(video, ts);
         const faceResult = face.detectForVideo(video, ts);
         drawMirroredVideo();
 
         const landmarks = handResult.landmarks ?? [];
-        const gunPose = landmarks.length > 0 && isGunPose(landmarks[0]);
-        if (landmarks.length > 0) {
+        const hasHand = landmarks.length > 0;
+        const gunPose = hasHand && isGunPose(landmarks[0]);
+        if (hasHand) {
           updateCursor(landmarks[0][LANDMARK.INDEX_TIP]);
         } else {
           cursor.active = false;
@@ -237,12 +262,16 @@ async function loop(hand: HandLandmarker, face: FaceLandmarker) {
         const blinkScore = bs.length > 0 ? readBlinkScore(bs) : 0;
         updateBlink(blinkScore, ts, gunPose);
 
+        updateGame(game, dt);
+
+        drawGame(game, ctx, canvas.width, canvas.height, ts);
         drawLandmarks(landmarks, gunPose);
         drawShots(ts);
         drawCursor(gunPose);
         drawPoseLabel(gunPose, blinkScore);
+        drawHud(game, ctx, canvas.width, canvas.height);
 
-        statusEl.textContent = `hands: ${landmarks.length} · ${gunPose ? "🔫" : "—"} · blink: ${blinkScore.toFixed(2)} · shots: ${shotCount}`;
+        statusEl.textContent = `${gunPose ? "🔫" : "—"} · wave ${game.wave} · zombies ${game.zombies.length}`;
       }
     }
     requestAnimationFrame(tick);
