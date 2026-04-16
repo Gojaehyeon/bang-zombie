@@ -23,6 +23,10 @@
 
 ## Screenshots
 
+### Play
+
+![Bang Zombie play](assets/images/bang-zombie-play.png)
+
 ### Gameplay
 
 ![Bang Zombie gameplay](assets/images/bang-zombie-gameplay.png)
