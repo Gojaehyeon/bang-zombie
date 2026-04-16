@@ -430,6 +430,26 @@ function showError(msg: string) {
   errorEl.classList.add("show");
 }
 
+function getInitErrorMessage(err: unknown): string {
+  if (err instanceof DOMException) {
+    if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+      return "카메라 권한이 필요합니다. 브라우저에서 이 게임의 카메라 사용을 허용한 뒤 다시 실행해 주세요.";
+    }
+  }
+
+  const msg = err instanceof Error ? err.message : String(err);
+  const lowered = msg.toLowerCase();
+  if (
+    lowered.includes("not allowed by the user agent") ||
+    lowered.includes("denied permission") ||
+    lowered.includes("permission denied")
+  ) {
+    return "카메라 권한이 필요합니다. 브라우저에서 이 게임의 카메라 사용을 허용한 뒤 다시 실행해 주세요.";
+  }
+
+  return `초기화 실패: ${msg}`;
+}
+
 async function startCamera(): Promise<void> {
   const orientation = getViewportOrientation();
   const requestSeq = ++cameraRequestSeq;
@@ -787,9 +807,8 @@ async function main() {
     playBgm(bgmMenu);
     loop(hand, face, sprites);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
     console.error(err);
-    showError(`초기화 실패: ${msg}`);
+    showError(getInitErrorMessage(err));
     statusEl.textContent = "오류";
   }
 }
