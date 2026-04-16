@@ -192,9 +192,9 @@ const cursors: [Cursor, Cursor] = [
   { x: 0.5, y: 0.5, active: false },
 ];
 
-const BLINK_FIRE = 0.35;
-const BLINK_RESET = 0.15;
-const SHOT_COOLDOWN_MS = 100;
+const BLINK_FIRE = 0.50;
+const BLINK_RESET = 0.38;
+const SHOT_COOLDOWN_MS = 80;
 const blink = { closed: false, lastShotAt: -Infinity, score: 0 };
 
 type Shot = { x: number; y: number; t: number; hit: boolean };
@@ -560,7 +560,7 @@ async function loop(
           drawDualNotify(ts);
         }
 
-        statusEl.textContent = `SYS ${anyGunPose ? "ARMED" : "IDLE"} // HOSTILES ${game.zombies.length}${dualUnlocked ? " // DUAL" : ""}`;
+        statusEl.textContent = `SYS ${anyGunPose ? "ARMED" : "IDLE"} // BLINK ${blinkScore.toFixed(2)} // HOSTILES ${game.zombies.length}${dualUnlocked ? " // DUAL" : ""}`;
       }
     }
     requestAnimationFrame(tick);
