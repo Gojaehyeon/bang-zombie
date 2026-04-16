@@ -567,17 +567,39 @@ async function loop(
   tick();
 }
 
+const loadingBar = document.getElementById("loading-bar") as HTMLDivElement;
+const loadingLabel = document.getElementById("loading-label") as HTMLSpanElement;
+const loadingPct = document.getElementById("loading-pct") as HTMLSpanElement;
+const loadingFill = document.getElementById("loading-fill") as HTMLDivElement;
+
+function setLoading(label: string, pct: number) {
+  loadingBar.style.display = "block";
+  loadingLabel.textContent = label;
+  loadingPct.textContent = `${Math.round(pct)}%`;
+  loadingFill.style.width = `${pct}%`;
+}
+
+function hideLoading() {
+  loadingBar.style.display = "none";
+}
+
 async function main() {
   try {
-    statusEl.textContent = "카메라 연결 중…";
+    setLoading("CONNECTING CAMERA...", 0);
     await startCamera();
     resizeCanvas();
-    statusEl.textContent = "모델 + 스프라이트 로딩 중…";
-    const [hand, face, sprites] = await Promise.all([
-      createHandLandmarker(),
-      createFaceLandmarker(),
-      loadSprites(),
-    ]);
+
+    setLoading("LOADING HAND MODEL...", 20);
+    const hand = await createHandLandmarker();
+
+    setLoading("LOADING FACE MODEL...", 50);
+    const face = await createFaceLandmarker();
+
+    setLoading("LOADING SPRITES...", 80);
+    const sprites = await loadSprites();
+
+    setLoading("READY", 100);
+    setTimeout(hideLoading, 600);
     statusEl.textContent = "준비 완료";
     playBgm(bgmMenu);
     loop(hand, face, sprites);

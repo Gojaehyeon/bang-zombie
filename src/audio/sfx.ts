@@ -71,8 +71,8 @@ export function play(name: SfxName): void {
   try {
     switch (name) {
       case "shot":
-        noiseBurst(0.12, 0.35, 1800);
-        envTone(180, 0.1, "square", 0.12, 60);
+        noiseBurst(0.15, 0.7, 2200);
+        envTone(160, 0.12, "square", 0.3, 50);
         break;
       case "empty":
         envTone(900, 0.05, "square", 0.1);
