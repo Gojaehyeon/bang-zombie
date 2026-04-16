@@ -4,7 +4,6 @@ export type SfxName =
   | "reload"
   | "hit"
   | "kill"
-  | "wave-start"
   | "player-dead";
 
 let ctx: AudioContext | null = null;
@@ -88,10 +87,6 @@ export function play(name: SfxName): void {
       case "kill":
         envTone(220, 0.18, "sawtooth", 0.14, 80);
         noiseBurst(0.15, 0.2, 700);
-        break;
-      case "wave-start":
-        envTone(520, 0.1, "triangle", 0.14);
-        setTimeout(() => envTone(780, 0.16, "triangle", 0.14), 110);
         break;
       case "player-dead":
         envTone(300, 0.5, "sawtooth", 0.18, 40);

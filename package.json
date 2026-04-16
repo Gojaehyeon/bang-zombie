@@ -13,7 +13,8 @@
     "app:build": "npm run build && electron-builder --mac"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "^0.10.14"
+    "@mediapipe/tasks-vision": "^0.10.14",
+    "@supabase/supabase-js": "^2.103.2"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",
@@ -34,7 +35,10 @@
     "mac": {
       "category": "public.app-category.games",
       "target": [
-        { "target": "dir", "arch": "arm64" }
+        {
+          "target": "dir",
+          "arch": "arm64"
+        }
       ],
       "extendInfo": {
         "NSCameraUsageDescription": "손을 권총으로 인식해서 좀비를 쏘기 위해 카메라가 필요합니다."

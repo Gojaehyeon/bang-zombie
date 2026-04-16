@@ -1,3 +1,4 @@
+export type Difficulty = "easy" | "hard";
 export type ZombieKind = "normal" | "runner" | "tank";
 
 export type Zombie = {
@@ -12,6 +13,13 @@ export type Zombie = {
   hurtAt: number;
 };
 
+export type LeaderboardRow = {
+  nickname: string;
+  score: number;
+  wave: number;
+  difficulty: string;
+};
+
 export type Game = {
   zombies: Zombie[];
   score: number;
@@ -19,33 +27,37 @@ export type Game = {
   hp: number;
   maxHp: number;
   over: boolean;
-  wave: number;
-  waveToSpawn: number;
-  waveSpawnTimer: number;
-  waveIntermission: number;
+  elapsed: number;
+  spawnTimer: number;
   startedAt: number;
+  difficulty: Difficulty;
+  nickname: string;
+  leaderboard: LeaderboardRow[];
   onSound?: (name: SoundName) => void;
 };
 
-export type SoundName =
-  | "hit"
-  | "kill"
-  | "wave-start"
-  | "player-dead";
+export type SoundName = "hit" | "kill" | "player-dead";
 
 const PLAYER_HOME_X = 0.5;
 const PLAYER_HOME_Y = 0.5;
-const PLAYER_HURT_RADIUS = 0.045;
+const PLAYER_HURT_RADIUS = 0.07;
 const HIT_PAD = 0.015;
 const HIGH_SCORE_KEY = "bang-zombie.highscore";
+const SPAWN_BASE = 2.0;
+const SPAWN_MIN = 0.4;
 
 const KIND_STATS: Record<
   ZombieKind,
   { hp: number; speed: number; radius: number; score: number }
 > = {
-  normal: { hp: 1, speed: 0.055, radius: 0.05, score: 10 },
-  runner: { hp: 1, speed: 0.11, radius: 0.038, score: 20 },
-  tank: { hp: 3, speed: 0.032, radius: 0.07, score: 50 },
+  normal: { hp: 1, speed: 0.055, radius: 0.08, score: 10 },
+  runner: { hp: 1, speed: 0.11, radius: 0.065, score: 20 },
+  tank: { hp: 3, speed: 0.032, radius: 0.11, score: 50 },
+};
+
+const DIFF_MULT: Record<Difficulty, { speed: number; spawnRate: number }> = {
+  easy: { speed: 0.7, spawnRate: 1.4 },
+  hard: { speed: 1.15, spawnRate: 0.7 },
 };
 
 function loadHighScore(): number {
@@ -65,25 +77,27 @@ function saveHighScore(score: number): void {
   }
 }
 
-function waveSize(wave: number): number {
-  return 5 + wave * 3;
-}
-
-function waveKind(wave: number): ZombieKind {
+function pickKind(elapsed: number): ZombieKind {
+  const t = elapsed / 60; // 0..1 over first minute
   const r = Math.random();
-  if (wave <= 1) return "normal";
-  if (wave === 2) return r < 0.75 ? "normal" : "runner";
-  if (wave === 3) return r < 0.5 ? "normal" : r < 0.85 ? "runner" : "tank";
+  if (t < 0.25) return "normal";
+  if (t < 0.5) return r < 0.7 ? "normal" : "runner";
   if (r < 0.4) return "normal";
   if (r < 0.75) return "runner";
   return "tank";
 }
 
-function waveInterval(wave: number): number {
-  return Math.max(1.8 - wave * 0.12, 0.55);
+function spawnInterval(elapsed: number, diff: Difficulty): number {
+  const ramp = Math.min(elapsed / 90, 1);
+  const base = SPAWN_BASE - (SPAWN_BASE - SPAWN_MIN) * ramp;
+  return base * DIFF_MULT[diff].spawnRate;
 }
 
-export function createGame(now: number): Game {
+export function createGame(
+  now: number,
+  difficulty: Difficulty = "easy",
+  nickname = "",
+): Game {
   return {
     zombies: [],
     score: 0,
@@ -91,52 +105,50 @@ export function createGame(now: number): Game {
     hp: 1,
     maxHp: 1,
     over: false,
-    wave: 0,
-    waveToSpawn: 0,
-    waveSpawnTimer: 0,
-    waveIntermission: 1.2,
+    elapsed: 0,
+    spawnTimer: 1.0,
     startedAt: now,
+    difficulty,
+    nickname,
+    leaderboard: [],
   };
 }
 
-export function resetGame(g: Game, now: number): void {
+export function resetGame(
+  g: Game,
+  now: number,
+  difficulty?: Difficulty,
+  nickname?: string,
+): void {
   g.zombies.length = 0;
   g.score = 0;
   g.hp = g.maxHp;
   g.over = false;
-  g.wave = 0;
-  g.waveToSpawn = 0;
-  g.waveSpawnTimer = 0;
-  g.waveIntermission = 1.2;
+  g.elapsed = 0;
+  g.spawnTimer = 1.0;
   g.startedAt = now;
+  g.leaderboard = [];
+  if (difficulty !== undefined) g.difficulty = difficulty;
+  if (nickname !== undefined) g.nickname = nickname;
 }
 
-function spawnZombie(kind: ZombieKind, wave: number): Zombie {
+function spawnZombie(elapsed: number, diff: Difficulty): Zombie {
   const side = Math.floor(Math.random() * 4);
   let x = 0.5;
   let y = 0.5;
   const m = -0.06;
-  if (side === 0) {
-    x = Math.random();
-    y = m;
-  } else if (side === 1) {
-    x = Math.random();
-    y = 1 - m;
-  } else if (side === 2) {
-    x = m;
-    y = Math.random();
-  } else {
-    x = 1 - m;
-    y = Math.random();
-  }
+  if (side === 0) { x = Math.random(); y = m; }
+  else if (side === 1) { x = Math.random(); y = 1 - m; }
+  else if (side === 2) { x = m; y = Math.random(); }
+  else { x = 1 - m; y = Math.random(); }
+  const kind = pickKind(elapsed);
   const stats = KIND_STATS[kind];
-  const speedRamp = 1 + wave * 0.04;
+  const ramp = 1 + elapsed * 0.003;
   return {
-    x,
-    y,
+    x, y,
     hp: stats.hp,
     maxHp: stats.hp,
-    speed: stats.speed * speedRamp * (0.9 + Math.random() * 0.2),
+    speed: stats.speed * ramp * (0.9 + Math.random() * 0.2) * DIFF_MULT[diff].speed,
     radius: stats.radius,
     kind,
     alive: true,
@@ -146,28 +158,12 @@ function spawnZombie(kind: ZombieKind, wave: number): Zombie {
 
 export function updateGame(g: Game, dt: number): void {
   if (g.over) return;
+  g.elapsed += dt;
 
-  if (g.waveToSpawn === 0 && g.zombies.length === 0) {
-    g.waveIntermission -= dt;
-    if (g.waveIntermission <= 0) {
-      g.wave += 1;
-      g.waveToSpawn = waveSize(g.wave);
-      g.waveSpawnTimer = 0;
-      g.waveIntermission = 0;
-      g.onSound?.("wave-start");
-    }
-  }
-
-  if (g.waveToSpawn > 0) {
-    g.waveSpawnTimer -= dt;
-    if (g.waveSpawnTimer <= 0) {
-      g.zombies.push(spawnZombie(waveKind(g.wave), g.wave));
-      g.waveToSpawn -= 1;
-      g.waveSpawnTimer = waveInterval(g.wave);
-      if (g.waveToSpawn === 0) {
-        g.waveIntermission = 2.5;
-      }
-    }
+  g.spawnTimer -= dt;
+  if (g.spawnTimer <= 0) {
+    g.zombies.push(spawnZombie(g.elapsed, g.difficulty));
+    g.spawnTimer = spawnInterval(g.elapsed, g.difficulty);
   }
 
   for (const z of g.zombies) {
@@ -228,11 +224,35 @@ export function resolveHit(
   return true;
 }
 
-const ZOMBIE_COLORS: Record<ZombieKind, { body: string; rim: string }> = {
-  normal: { body: "#4a7c3c", rim: "#1b2e18" },
-  runner: { body: "#c04040", rim: "#3a1212" },
-  tank: { body: "#6a4a9c", rim: "#241838" },
+// --- Drawing ---
+
+export type SpriteMap = {
+  player: HTMLImageElement;
+  normal: HTMLImageElement;
+  runner: HTMLImageElement;
+  tank: HTMLImageElement;
 };
+
+const ZOMBIE_IMG_KEY: Record<ZombieKind, keyof SpriteMap> = {
+  normal: "normal",
+  runner: "runner",
+  tank: "tank",
+};
+
+const CRT_GREEN = "#33ff66";
+const CRT_AMBER = "#ffaa22";
+const CRT_RED = "#ff3344";
+const CRT_FONT = '"VT323", monospace';
+
+function drawSpriteCentered(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLImageElement,
+  cx: number,
+  cy: number,
+  size: number,
+) {
+  ctx.drawImage(img, cx - size / 2, cy - size / 2, size, size);
+}
 
 export function drawGame(
   g: Game,
@@ -240,85 +260,62 @@ export function drawGame(
   w: number,
   h: number,
   now: number,
+  sprites: SpriteMap,
 ): void {
-  // player character at the center
+  const minDim = Math.min(w, h);
+
+  // player at center
   const phx = PLAYER_HOME_X * w;
   const phy = PLAYER_HOME_Y * h;
-  const phr = PLAYER_HURT_RADIUS * Math.min(w, h);
-  ctx.save();
+  const phr = PLAYER_HURT_RADIUS * minDim;
+  const playerSize = phr * 3.6;
   const bob = Math.sin(now / 320) * phr * 0.05;
-  ctx.fillStyle = "#2b6cb0";
+  drawSpriteCentered(ctx, sprites.player, phx, phy + bob, playerSize);
+
+  // scanline-style danger ring
+  ctx.save();
+  const pulse = 0.5 + Math.sin(now / 180) * 0.5;
+  ctx.strokeStyle = `rgba(51, 255, 102, ${0.15 + pulse * 0.2})`;
+  ctx.setLineDash([2, 8]);
+  ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.moveTo(phx - phr * 0.7, phy + phr * 1.05 + bob);
-  ctx.lineTo(phx - phr * 0.5, phy - phr * 0.1 + bob);
-  ctx.lineTo(phx + phr * 0.5, phy - phr * 0.1 + bob);
-  ctx.lineTo(phx + phr * 0.7, phy + phr * 1.05 + bob);
-  ctx.closePath();
-  ctx.fill();
-  ctx.strokeStyle = "#0f2540";
-  ctx.lineWidth = 3;
-  ctx.stroke();
-  const headR = phr * 0.55;
-  ctx.fillStyle = "#f5d0a9";
-  ctx.beginPath();
-  ctx.arc(phx, phy - phr * 0.4 + bob, headR, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = "#1a1a1a";
-  ctx.beginPath();
-  ctx.arc(phx - headR * 0.35, phy - phr * 0.45 + bob, headR * 0.12, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(phx + headR * 0.35, phy - phr * 0.45 + bob, headR * 0.12, 0, Math.PI * 2);
-  ctx.fill();
-  const pulse = 0.5 + Math.sin(now / 200) * 0.5;
-  ctx.strokeStyle = `rgba(255, 80, 80, ${0.2 + pulse * 0.25})`;
-  ctx.setLineDash([4, 6]);
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.arc(phx, phy, phr * 1.2, 0, Math.PI * 2);
+  ctx.arc(phx, phy, phr * 1.3, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.restore();
 
+  // zombies
   for (const z of g.zombies) {
     if (!z.alive) continue;
     const cx = z.x * w;
     const cy = z.y * h;
-    const r = z.radius * Math.min(w, h);
+    const r = z.radius * minDim;
+    const size = r * 2.8;
     const hurt = now - z.hurtAt < 120;
-    const colors = ZOMBIE_COLORS[z.kind];
-    ctx.fillStyle = hurt ? "#ffffff" : colors.body;
-    ctx.beginPath();
-    ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = colors.rim;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.fillStyle = "#ff3333";
-    ctx.beginPath();
-    ctx.arc(cx - r * 0.35, cy - r * 0.15, r * 0.13, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(cx + r * 0.35, cy - r * 0.15, r * 0.13, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = "#1b1b1b";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(cx - r * 0.4, cy + r * 0.35);
-    ctx.lineTo(cx + r * 0.4, cy + r * 0.35);
-    ctx.stroke();
+    const img = sprites[ZOMBIE_IMG_KEY[z.kind]];
+    ctx.save();
+    if (hurt) {
+      ctx.globalAlpha = 0.5 + Math.sin(now / 20) * 0.5;
+    }
+    drawSpriteCentered(ctx, img, cx, cy, size);
+    ctx.restore();
     if (z.maxHp > 1) {
       const barW = r * 1.6;
-      const barH = 5;
+      const barH = 4;
       const bx = cx - barW / 2;
-      const by = cy - r - 12;
-      ctx.fillStyle = "rgba(0,0,0,0.55)";
+      const by = cy - size / 2 - 8;
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.fillRect(bx, by, barW, barH);
-      ctx.fillStyle = "#66ff88";
+      ctx.fillStyle = CRT_GREEN;
       ctx.fillRect(bx, by, barW * (z.hp / z.maxHp), barH);
     }
   }
+}
+
+function formatTime(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
 export function drawHud(
@@ -328,46 +325,69 @@ export function drawHud(
   h: number,
 ): void {
   ctx.save();
-  ctx.font = "bold 26px -apple-system, system-ui, sans-serif";
+  ctx.font = `32px ${CRT_FONT}`;
   ctx.textBaseline = "top";
-  ctx.textAlign = "right";
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(w - 260, 16, 244, 104);
-  ctx.fillStyle = "#fff";
-  ctx.fillText(`SCORE ${g.score}`, w - 28, 22);
-  ctx.fillStyle = "#ffcc66";
-  ctx.font = "bold 18px -apple-system, system-ui, sans-serif";
-  ctx.fillText(`HIGH ${g.highScore}`, w - 28, 54);
-  ctx.fillStyle = "#66ccff";
-  ctx.fillText(`WAVE ${g.wave}`, w - 28, 78);
 
-  // wave banner during intermission
-  if (!g.over && g.waveToSpawn === 0 && g.zombies.length === 0 && g.waveIntermission > 0) {
-    ctx.textAlign = "center";
-    ctx.font = "bold 56px -apple-system, system-ui, sans-serif";
-    ctx.fillStyle = "rgba(255,255,255,0.85)";
-    ctx.fillText(
-      g.wave === 0 ? "GET READY" : `WAVE ${g.wave + 1}`,
-      w / 2,
-      h / 2 - 180,
-    );
+  // top-left: score + time
+  ctx.fillStyle = "rgba(0,4,0,0.55)";
+  ctx.fillRect(0, 0, 320, 52);
+  ctx.fillStyle = CRT_GREEN;
+  ctx.textAlign = "left";
+  ctx.fillText(`SCORE ${String(g.score).padStart(6, "0")}`, 16, 12);
+  ctx.fillStyle = CRT_AMBER;
+  ctx.textAlign = "right";
+  ctx.fillText(formatTime(g.elapsed), 308, 12);
+
+  // top-right: high score + hostiles
+  ctx.fillStyle = "rgba(0,4,0,0.55)";
+  ctx.fillRect(w - 280, 0, 280, 52);
+  ctx.textAlign = "right";
+  ctx.fillStyle = CRT_GREEN;
+  ctx.font = `24px ${CRT_FONT}`;
+  ctx.fillText(`HIGH ${String(g.highScore).padStart(6, "0")}`, w - 16, 6);
+  ctx.fillStyle = CRT_RED;
+  ctx.fillText(`HOSTILES: ${g.zombies.length}`, w - 16, 30);
+
+  // bottom bar: difficulty + nickname
+  ctx.fillStyle = "rgba(0,4,0,0.45)";
+  ctx.fillRect(0, h - 36, w, 36);
+  ctx.font = `22px ${CRT_FONT}`;
+  ctx.textAlign = "left";
+  ctx.fillStyle = CRT_GREEN;
+  ctx.globalAlpha = 0.6;
+  ctx.fillText(`[${g.difficulty.toUpperCase()}] ${g.nickname}`, 16, h - 30);
+  ctx.textAlign = "right";
+  ctx.fillText(`ELAPSED ${formatTime(g.elapsed)}`, w - 16, h - 30);
+  ctx.globalAlpha = 1;
+
+  // subtle scanlines
+  ctx.fillStyle = "rgba(0,0,0,0.04)";
+  for (let y = 0; y < h; y += 4) {
+    ctx.fillRect(0, y, w, 2);
   }
 
+  // game over
   if (g.over) {
-    ctx.fillStyle = "rgba(0,0,0,0.72)";
+    ctx.fillStyle = "rgba(0,4,0,0.82)";
     ctx.fillRect(0, 0, w, h);
+
     ctx.textAlign = "center";
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 88px -apple-system, system-ui, sans-serif";
-    ctx.fillText("GAME OVER", w / 2, h / 2 - 120);
-    ctx.font = "bold 40px -apple-system, system-ui, sans-serif";
-    ctx.fillText(`SCORE ${g.score}`, w / 2, h / 2 - 20);
-    ctx.font = "bold 28px -apple-system, system-ui, sans-serif";
-    ctx.fillStyle = "#ffcc66";
-    ctx.fillText(`WAVE ${g.wave} · HIGH ${g.highScore}`, w / 2, h / 2 + 30);
-    ctx.font = "bold 24px -apple-system, system-ui, sans-serif";
-    ctx.fillStyle = "#bbb";
-    ctx.fillText("Enter 키를 눌러 다시 시작", w / 2, h / 2 + 80);
+    ctx.fillStyle = CRT_RED;
+    ctx.font = `96px ${CRT_FONT}`;
+    ctx.fillText("TERMINATED", w / 2, h * 0.1);
+
+    ctx.fillStyle = CRT_GREEN;
+    ctx.font = `48px ${CRT_FONT}`;
+    ctx.fillText(`SCORE: ${String(g.score).padStart(6, "0")}`, w / 2, h * 0.1 + 100);
+    ctx.font = `32px ${CRT_FONT}`;
+    ctx.fillStyle = CRT_AMBER;
+    ctx.fillText(
+      `SURVIVED ${formatTime(g.elapsed)} // HIGH ${String(g.highScore).padStart(6, "0")}`,
+      w / 2,
+      h * 0.1 + 150,
+    );
+
+    // removed — using HTML button instead
   }
   ctx.restore();
 }
