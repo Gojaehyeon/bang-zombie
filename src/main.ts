@@ -165,6 +165,11 @@ const nicknameInput = document.getElementById("nickname") as HTMLInputElement;
 const startBtn = document.getElementById("start-btn") as HTMLButtonElement;
 const gameoverEl = document.getElementById("gameover") as HTMLDivElement;
 const backBtn = document.getElementById("back-btn") as HTMLButtonElement;
+type ViewportOrientation = "portrait" | "landscape";
+let cameraStream: MediaStream | null = null;
+let cameraOrientation: ViewportOrientation | null = null;
+let cameraSyncPromise: Promise<void> | null = null;
+let cameraRequestSeq = 0;
 
 backBtn.addEventListener("click", () => {
   playClick();
@@ -275,7 +280,7 @@ function fireAllGuns(now: number) {
 }
 
 function updateCursorAt(c: Cursor, tip: { x: number; y: number }) {
-  const rawX = clamp01((1 - tip.x - 0.5) * CURSOR_GAIN + 0.5);
+  const rawX = clamp01((tip.x - 0.5) * CURSOR_GAIN + 0.5);
   const rawY = clamp01((tip.y - 0.5) * CURSOR_GAIN + 0.5);
   if (!c.active) {
     c.x = rawX;
@@ -314,6 +319,10 @@ function checkDualUnlock(now: number) {
 }
 
 function drawShots(now: number) {
+  const portrait = isPortraitViewport();
+  const scale = portrait
+    ? Math.max(0.72, Math.min(Math.min(canvas.width, canvas.height) / 720, 0.9))
+    : 1;
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
     const age = now - s.t;
@@ -327,13 +336,13 @@ function drawShots(now: number) {
     ctx.save();
     ctx.globalAlpha = k;
     ctx.strokeStyle = s.hit ? "#33ff66" : "#ffaa22";
-    ctx.lineWidth = 3;
+    ctx.lineWidth = 3 * scale;
     ctx.beginPath();
-    ctx.arc(cx, cy, 14 + (1 - k) * 40, 0, Math.PI * 2);
+    ctx.arc(cx, cy, (14 + (1 - k) * 40) * scale, 0, Math.PI * 2);
     ctx.stroke();
     ctx.fillStyle = s.hit ? "#33ff66" : "#fff";
     ctx.beginPath();
-    ctx.arc(cx, cy, 5 * k + 2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, (5 * k + 2) * scale, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -341,19 +350,23 @@ function drawShots(now: number) {
 
 function drawCrosshair(c: Cursor, armed: boolean, label?: string) {
   if (!c.active) return;
+  const portrait = isPortraitViewport();
+  const scale = portrait
+    ? Math.max(0.72, Math.min(Math.min(canvas.width, canvas.height) / 720, 0.88))
+    : 1;
   const cx = c.x * canvas.width;
   const cy = c.y * canvas.height;
   const color = armed ? "#33ff66" : "rgba(51,255,102,0.4)";
   ctx.strokeStyle = color;
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = 1.5 * scale;
   ctx.beginPath();
-  ctx.arc(cx, cy, 36, 0, Math.PI * 2);
+  ctx.arc(cx, cy, 36 * scale, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = color;
   ctx.beginPath();
-  ctx.arc(cx, cy, 2, 0, Math.PI * 2);
+  ctx.arc(cx, cy, 2 * scale, 0, Math.PI * 2);
   ctx.fill();
-  const segments: [number, number][] = [[18, 48], [-18, -48]];
+  const segments: [number, number][] = [[18 * scale, 48 * scale], [-18 * scale, -48 * scale]];
   for (const [a, b] of segments) {
     ctx.beginPath();
     ctx.moveTo(cx + a, cy);
@@ -362,8 +375,8 @@ function drawCrosshair(c: Cursor, armed: boolean, label?: string) {
     ctx.lineTo(cx, cy + b);
     ctx.stroke();
   }
-  const d = 26;
-  const l = 8;
+  const d = 26 * scale;
+  const l = 8 * scale;
   ctx.beginPath();
   for (const sx of [-1, 1]) {
     for (const sy of [-1, 1]) {
@@ -374,10 +387,10 @@ function drawCrosshair(c: Cursor, armed: boolean, label?: string) {
   }
   ctx.stroke();
   if (label) {
-    ctx.font = '18px "VT323", monospace';
+    ctx.font = `${18 * scale}px "VT323", monospace`;
     ctx.fillStyle = color;
     ctx.textAlign = "center";
-    ctx.fillText(label, cx, cy + 50);
+    ctx.fillText(label, cx, cy + 50 * scale);
     ctx.textAlign = "left";
   }
 }
@@ -386,23 +399,28 @@ function drawDualNotify(now: number) {
   if (now > dualNotifyUntil) return;
   const age = dualNotifyUntil - now;
   const alpha = Math.min(age / 500, 1);
+  const portrait = isPortraitViewport();
+  const scale = portrait
+    ? Math.max(0.72, Math.min(Math.min(canvas.width, canvas.height) / 720, 0.9))
+    : 1;
+  const baseY = canvas.height * (portrait ? 0.12 : 0.2);
   ctx.save();
   ctx.globalAlpha = alpha;
-  ctx.font = '42px "VT323", monospace';
+  ctx.font = `${42 * scale}px "VT323", monospace`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillStyle = "#ffaa22";
   ctx.fillText(
     ">> DUAL GUNS UNLOCKED <<",
     canvas.width / 2,
-    canvas.height * 0.2,
+    baseY,
   );
-  ctx.font = '26px "VT323", monospace';
+  ctx.font = `${26 * scale}px "VT323", monospace`;
   ctx.fillStyle = "#33ff66";
   ctx.fillText(
     "USE BOTH HANDS TO AIM",
     canvas.width / 2,
-    canvas.height * 0.2 + 40,
+    baseY + 40 * scale,
   );
   ctx.restore();
 }
@@ -413,37 +431,143 @@ function showError(msg: string) {
 }
 
 async function startCamera(): Promise<void> {
+  const orientation = getViewportOrientation();
+  const requestSeq = ++cameraRequestSeq;
   const stream = await navigator.mediaDevices.getUserMedia({
-    video: { width: 1280, height: 720, facingMode: "user" },
+    video: getCameraConstraints(orientation),
     audio: false,
   });
+
+  if (requestSeq !== cameraRequestSeq) {
+    stopStream(stream);
+    return;
+  }
+
+  const prevStream = cameraStream;
+  cameraStream = stream;
+  cameraOrientation = orientation;
   video.srcObject = stream;
   await new Promise<void>((resolve) => {
     video.onloadedmetadata = () => {
       video.play().then(() => resolve());
     };
   });
+  if (prevStream !== stream) stopStream(prevStream);
+}
+
+async function syncCameraToViewport(): Promise<void> {
+  const orientation = getViewportOrientation();
+  if (cameraStream && cameraOrientation === orientation) {
+    resizeCanvas();
+    return;
+  }
+
+  await startCamera();
+  resizeCanvas();
+}
+
+function queueCameraSync() {
+  if (cameraSyncPromise) return;
+  cameraSyncPromise = (async () => {
+    try {
+      do {
+        await syncCameraToViewport();
+      } while (cameraOrientation !== getViewportOrientation());
+    } catch (err) {
+      console.warn("Camera sync failed:", err);
+    } finally {
+      cameraSyncPromise = null;
+    }
+  })();
 }
 
 function resizeCanvas() {
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
+  if (isPortraitViewport()) {
+    canvas.width = Math.max(window.innerWidth, 1);
+    canvas.height = Math.max(window.innerHeight, 1);
+    document.body.dataset.viewport = "portrait";
+    return;
+  }
+
+  canvas.width = Math.max(video.videoWidth, 1);
+  canvas.height = Math.max(video.videoHeight, 1);
+  document.body.dataset.viewport = "landscape";
 }
 
-function drawMirroredVideo() {
+function getVideoProjection(): VideoProjection {
+  if (!isPortraitViewport()) {
+    return {
+      sx: 0,
+      sy: 0,
+      sw: Math.max(video.videoWidth, 1),
+      sh: Math.max(video.videoHeight, 1),
+    };
+  }
+
+  const videoWidth = Math.max(video.videoWidth, 1);
+  const videoHeight = Math.max(video.videoHeight, 1);
+  const videoAspect = videoWidth / videoHeight;
+  const canvasAspect = canvas.width / canvas.height;
+
+  if (videoAspect > canvasAspect) {
+    const sw = videoHeight * canvasAspect;
+    return {
+      sx: (videoWidth - sw) / 2,
+      sy: 0,
+      sw,
+      sh: videoHeight,
+    };
+  }
+
+  const sh = videoWidth / canvasAspect;
+  return {
+    sx: 0,
+    sy: (videoHeight - sh) / 2,
+    sw: videoWidth,
+    sh,
+  };
+}
+
+function projectVideoPoint(
+  point: { x: number; y: number },
+  projection: VideoProjection,
+): ProjectedPoint {
+  const videoX = point.x * video.videoWidth;
+  const videoY = point.y * video.videoHeight;
+  const rx = (videoX - projection.sx) / projection.sw;
+  const ry = (videoY - projection.sy) / projection.sh;
+  const mirroredX = 1 - rx;
+
+  return {
+    x: mirroredX * canvas.width,
+    y: ry * canvas.height,
+    nx: clamp01(mirroredX),
+    ny: clamp01(ry),
+    visible: rx >= 0 && rx <= 1 && ry >= 0 && ry <= 1,
+  };
+}
+
+function drawMirroredVideo(projection: VideoProjection) {
   ctx.save();
   ctx.scale(-1, 1);
-  ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+  ctx.drawImage(
+    video,
+    projection.sx,
+    projection.sy,
+    projection.sw,
+    projection.sh,
+    -canvas.width,
+    0,
+    canvas.width,
+    canvas.height,
+  );
   ctx.restore();
-}
-
-function mirrorX(x: number): number {
-  return (1 - x) * canvas.width;
 }
 
 function drawLandmarks(
   landmarksList: Array<Array<{ x: number; y: number; z: number }>>,
   gunPoses: boolean[],
+  projection: VideoProjection,
 ) {
   for (let h = 0; h < landmarksList.length; h++) {
     const lm = landmarksList[h];
@@ -454,25 +578,32 @@ function drawLandmarks(
       const pa = lm[a];
       const pb = lm[b];
       if (!pa || !pb) continue;
+      const aPoint = projectVideoPoint(pa, projection);
+      const bPoint = projectVideoPoint(pb, projection);
+      if (!aPoint.visible && !bPoint.visible) continue;
       ctx.beginPath();
-      ctx.moveTo(mirrorX(pa.x), pa.y * canvas.height);
-      ctx.lineTo(mirrorX(pb.x), pb.y * canvas.height);
+      ctx.moveTo(aPoint.x, aPoint.y);
+      ctx.lineTo(bPoint.x, bPoint.y);
       ctx.stroke();
     }
   }
 }
 
 function drawPoseLabel(anyGun: boolean, dualActive: boolean) {
+  const portrait = isPortraitViewport();
+  const scale = portrait
+    ? Math.max(0.72, Math.min(Math.min(canvas.width, canvas.height) / 720, 0.9))
+    : 1;
   const text = dualActive
     ? "DUAL ARMED"
     : anyGun
       ? "ARMED"
       : "STANDBY";
-  ctx.font = '26px "VT323", monospace';
+  ctx.font = `${26 * scale}px "VT323", monospace`;
   ctx.textBaseline = "top";
   ctx.fillStyle = anyGun ? "#33ff66" : "rgba(51,255,102,0.3)";
   ctx.textAlign = "center";
-  ctx.fillText(`[ ${text} ]`, canvas.width / 2, 16);
+  ctx.fillText(`[ ${text} ]`, canvas.width / 2, portrait ? 14 : 16);
   ctx.textAlign = "left";
 }
 
@@ -485,7 +616,15 @@ async function loop(
   let lastRealTs = performance.now();
   const tick = () => {
     if (video.readyState >= 2) {
-      if (canvas.width !== video.videoWidth) resizeCanvas();
+      const targetWidth = isPortraitViewport()
+        ? Math.max(window.innerWidth, 1)
+        : Math.max(video.videoWidth, 1);
+      const targetHeight = isPortraitViewport()
+        ? Math.max(window.innerHeight, 1)
+        : Math.max(video.videoHeight, 1);
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        resizeCanvas();
+      }
       const ts = performance.now();
       if (ts !== lastTs) {
         lastTs = ts;
@@ -494,7 +633,8 @@ async function loop(
 
         const handResult = hand.detectForVideo(video, ts);
         const faceResult = face.detectForVideo(video, ts);
-        drawMirroredVideo();
+        const projection = getVideoProjection();
+        drawMirroredVideo(projection);
 
         const landmarks = handResult.landmarks ?? [];
         const gunPoses: boolean[] = [];
@@ -505,7 +645,8 @@ async function loop(
             const gp = isGunPose(landmarks[i]);
             gunPoses.push(gp);
             if (i === 0 || dualUnlocked) {
-              updateCursorAt(cursors[i], landmarks[i][LANDMARK.INDEX_TIP]);
+              const tip = projectVideoPoint(landmarks[i][LANDMARK.INDEX_TIP], projection);
+              updateCursorAt(cursors[i], { x: tip.nx, y: tip.ny });
             }
           } else {
             gunPoses.push(false);
@@ -547,7 +688,7 @@ async function loop(
         }
 
         drawGame(game, ctx, canvas.width, canvas.height, ts, sprites);
-        drawLandmarks(landmarks, gunPoses);
+        drawLandmarks(landmarks, gunPoses, projection);
         drawShots(ts);
         drawCrosshair(cursors[0], gunPoses[0] ?? false, dualUnlocked ? "L" : undefined);
         if (dualUnlocked) {
@@ -573,6 +714,43 @@ const loadingLabel = document.getElementById("loading-label") as HTMLSpanElement
 const loadingPct = document.getElementById("loading-pct") as HTMLSpanElement;
 const loadingFill = document.getElementById("loading-fill") as HTMLDivElement;
 
+type VideoProjection = {
+  sx: number;
+  sy: number;
+  sw: number;
+  sh: number;
+};
+
+type ProjectedPoint = {
+  x: number;
+  y: number;
+  nx: number;
+  ny: number;
+  visible: boolean;
+};
+
+function isPortraitViewport(): boolean {
+  return window.innerHeight > window.innerWidth;
+}
+
+function getViewportOrientation(): ViewportOrientation {
+  return isPortraitViewport() ? "portrait" : "landscape";
+}
+
+function getCameraConstraints(orientation = getViewportOrientation()): MediaTrackConstraints {
+  const portrait = orientation === "portrait";
+  return {
+    facingMode: "user",
+    width: { ideal: portrait ? 720 : 1280 },
+    height: { ideal: portrait ? 1280 : 720 },
+    aspectRatio: { ideal: portrait ? 9 / 16 : 16 / 9 },
+  };
+}
+
+function stopStream(stream: MediaStream | null) {
+  stream?.getTracks().forEach((track) => track.stop());
+}
+
 function setLoading(label: string, pct: number) {
   loadingBar.style.display = "block";
   loadingLabel.textContent = label;
@@ -584,11 +762,15 @@ function hideLoading() {
   loadingBar.style.display = "none";
 }
 
+window.addEventListener("resize", () => {
+  resizeCanvas();
+  queueCameraSync();
+});
+
 async function main() {
   try {
     setLoading("CONNECTING CAMERA...", 0);
-    await startCamera();
-    resizeCanvas();
+    await syncCameraToViewport();
 
     setLoading("LOADING HAND MODEL...", 20);
     const hand = await createHandLandmarker();

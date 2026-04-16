@@ -324,41 +324,82 @@ export function drawHud(
   w: number,
   h: number,
 ): void {
+  const portrait = h > w;
+
   ctx.save();
-  ctx.font = `32px ${CRT_FONT}`;
   ctx.textBaseline = "top";
 
-  // top-left: score + time
-  ctx.fillStyle = "rgba(0,4,0,0.55)";
-  ctx.fillRect(0, 0, 320, 52);
-  ctx.fillStyle = CRT_GREEN;
-  ctx.textAlign = "left";
-  ctx.fillText(`SCORE ${String(g.score).padStart(6, "0")}`, 16, 12);
-  ctx.fillStyle = CRT_AMBER;
-  ctx.textAlign = "right";
-  ctx.fillText(formatTime(g.elapsed), 308, 12);
+  if (!portrait) {
+    ctx.font = `32px ${CRT_FONT}`;
 
-  // top-right: high score + hostiles
-  ctx.fillStyle = "rgba(0,4,0,0.55)";
-  ctx.fillRect(w - 280, 0, 280, 52);
-  ctx.textAlign = "right";
-  ctx.fillStyle = CRT_GREEN;
-  ctx.font = `24px ${CRT_FONT}`;
-  ctx.fillText(`HIGH ${String(g.highScore).padStart(6, "0")}`, w - 16, 6);
-  ctx.fillStyle = CRT_RED;
-  ctx.fillText(`HOSTILES: ${g.zombies.length}`, w - 16, 30);
+    ctx.fillStyle = "rgba(0,4,0,0.55)";
+    ctx.fillRect(0, 0, 320, 52);
+    ctx.fillStyle = CRT_GREEN;
+    ctx.textAlign = "left";
+    ctx.fillText(`SCORE ${String(g.score).padStart(6, "0")}`, 16, 12);
+    ctx.fillStyle = CRT_AMBER;
+    ctx.textAlign = "right";
+    ctx.fillText(formatTime(g.elapsed), 308, 12);
 
-  // bottom bar: difficulty + nickname
-  ctx.fillStyle = "rgba(0,4,0,0.45)";
-  ctx.fillRect(0, h - 36, w, 36);
-  ctx.font = `22px ${CRT_FONT}`;
-  ctx.textAlign = "left";
-  ctx.fillStyle = CRT_GREEN;
-  ctx.globalAlpha = 0.6;
-  ctx.fillText(`[${g.difficulty.toUpperCase()}] ${g.nickname}`, 16, h - 30);
-  ctx.textAlign = "right";
-  ctx.fillText(`ELAPSED ${formatTime(g.elapsed)}`, w - 16, h - 30);
-  ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(0,4,0,0.55)";
+    ctx.fillRect(w - 280, 0, 280, 52);
+    ctx.textAlign = "right";
+    ctx.fillStyle = CRT_GREEN;
+    ctx.font = `24px ${CRT_FONT}`;
+    ctx.fillText(`HIGH ${String(g.highScore).padStart(6, "0")}`, w - 16, 6);
+    ctx.fillStyle = CRT_RED;
+    ctx.fillText(`HOSTILES: ${g.zombies.length}`, w - 16, 30);
+
+    ctx.fillStyle = "rgba(0,4,0,0.45)";
+    ctx.fillRect(0, h - 36, w, 36);
+    ctx.font = `22px ${CRT_FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillStyle = CRT_GREEN;
+    ctx.globalAlpha = 0.6;
+    ctx.fillText(`[${g.difficulty.toUpperCase()}] ${g.nickname}`, 16, h - 30);
+    ctx.textAlign = "right";
+    ctx.fillText(`ELAPSED ${formatTime(g.elapsed)}`, w - 16, h - 30);
+    ctx.globalAlpha = 1;
+  } else {
+    const minDim = Math.min(w, h);
+    const scale = Math.max(0.72, Math.min(minDim / 720, 0.9));
+    const pad = 16 * scale;
+    const topPanelH = 72 * scale;
+    const bottomPanelH = 48 * scale;
+    const scoreFont = 32 * scale;
+    const infoFont = 24 * scale;
+    const footerFont = 22 * scale;
+
+    ctx.fillStyle = "rgba(0,4,0,0.58)";
+    ctx.fillRect(0, 0, w, topPanelH);
+
+    ctx.font = `${scoreFont}px ${CRT_FONT}`;
+    ctx.fillStyle = CRT_GREEN;
+    ctx.textAlign = "left";
+    ctx.fillText(`SCORE ${String(g.score).padStart(6, "0")}`, pad, 10 * scale);
+    ctx.fillStyle = CRT_AMBER;
+    ctx.textAlign = "right";
+    ctx.fillText(formatTime(g.elapsed), w - pad, 10 * scale);
+
+    ctx.font = `${infoFont}px ${CRT_FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillStyle = CRT_GREEN;
+    ctx.fillText(`HIGH ${String(g.highScore).padStart(6, "0")}`, pad, 38 * scale);
+    ctx.fillStyle = CRT_RED;
+    ctx.textAlign = "right";
+    ctx.fillText(`HOSTILES ${g.zombies.length}`, w - pad, 38 * scale);
+
+    ctx.fillStyle = "rgba(0,4,0,0.45)";
+    ctx.fillRect(0, h - bottomPanelH, w, bottomPanelH);
+    ctx.font = `${footerFont}px ${CRT_FONT}`;
+    ctx.textAlign = "left";
+    ctx.fillStyle = CRT_GREEN;
+    ctx.globalAlpha = 0.72;
+    ctx.fillText(`[${g.difficulty.toUpperCase()}] ${g.nickname}`, pad, h - bottomPanelH + 6 * scale);
+    ctx.textAlign = "right";
+    ctx.fillText(`ELAPSED ${formatTime(g.elapsed)}`, w - pad, h - bottomPanelH + 6 * scale);
+    ctx.globalAlpha = 1;
+  }
 
   // subtle scanlines
   ctx.fillStyle = "rgba(0,0,0,0.04)";
@@ -368,23 +409,26 @@ export function drawHud(
 
   // game over
   if (g.over) {
+    const scale = portrait
+      ? Math.max(0.72, Math.min(Math.min(w, h) / 720, 0.9))
+      : 1;
     ctx.fillStyle = "rgba(0,4,0,0.82)";
     ctx.fillRect(0, 0, w, h);
 
     ctx.textAlign = "center";
     ctx.fillStyle = CRT_RED;
-    ctx.font = `96px ${CRT_FONT}`;
+    ctx.font = `${96 * scale}px ${CRT_FONT}`;
     ctx.fillText("TERMINATED", w / 2, h * 0.1);
 
     ctx.fillStyle = CRT_GREEN;
-    ctx.font = `48px ${CRT_FONT}`;
-    ctx.fillText(`SCORE: ${String(g.score).padStart(6, "0")}`, w / 2, h * 0.1 + 100);
-    ctx.font = `32px ${CRT_FONT}`;
+    ctx.font = `${48 * scale}px ${CRT_FONT}`;
+    ctx.fillText(`SCORE: ${String(g.score).padStart(6, "0")}`, w / 2, h * 0.1 + 100 * scale);
+    ctx.font = `${32 * scale}px ${CRT_FONT}`;
     ctx.fillStyle = CRT_AMBER;
     ctx.fillText(
       `SURVIVED ${formatTime(g.elapsed)} // HIGH ${String(g.highScore).padStart(6, "0")}`,
       w / 2,
-      h * 0.1 + 150,
+      h * 0.1 + 150 * scale,
     );
 
     // removed — using HTML button instead
