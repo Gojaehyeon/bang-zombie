@@ -192,9 +192,9 @@ const cursors: [Cursor, Cursor] = [
   { x: 0.5, y: 0.5, active: false },
 ];
 
-const BLINK_FIRE = 0.15;
-const BLINK_RESET = 0.08;
-const SHOT_COOLDOWN_MS = 80;
+const BLINK_FIRE = 0.35;
+const BLINK_RESET = 0.15;
+const SHOT_COOLDOWN_MS = 100;
 const blink = { closed: false, lastShotAt: -Infinity, score: 0 };
 
 type Shot = { x: number; y: number; t: number; hit: boolean };
