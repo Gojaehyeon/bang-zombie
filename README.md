@@ -13,11 +13,30 @@
 
 ## Play
 
-- **Live**: https://bang-zombie.vercel.app
-- **Made by**: https://tntgames.xyz
+- **Live**: https://tntgames.xyz
+- **Studio**: TNT Games
 - **Repository**: https://github.com/Gojaehyeon/bang-zombie
 
 > 브라우저에서 카메라 권한 허용이 필요합니다.
+
+---
+
+## Screenshots
+
+### Main menu
+
+![Bang Zombie main menu](assets/images/bang-zombie-menu.png)
+
+### Gameplay
+
+![Bang Zombie gameplay](assets/images/bang-zombie-gameplay.png)
+
+### Ranking
+
+![Bang Zombie ranking](assets/images/bang-zombie-ranking.png)
+
+> README 이미지는 Puppeteer로 캡처했습니다.  
+> `npm run screenshots:readme`
 
 ---
 
