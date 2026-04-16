@@ -22,18 +22,17 @@ import killUrl from "./audio/item.mp3";
 import type { HandLandmarker, FaceLandmarker } from "@mediapipe/tasks-vision";
 
 // --- BGM & click sound ---
-const bgmMenu = new Audio(bgmMenuUrl);
-bgmMenu.loop = true;
-bgmMenu.volume = 0.4;
-const bgmGame = new Audio(bgmGameUrl);
-bgmGame.loop = true;
-bgmGame.volume = 0.7;
-const bgmDual = new Audio(bgmDualUrl);
-bgmDual.loop = true;
-bgmDual.volume = 0.7;
-const bgmOver = new Audio(bgmOverUrl);
-bgmOver.loop = true;
-bgmOver.volume = 0.5;
+function makeBgm(url: string, vol: number): HTMLAudioElement {
+  const a = new Audio(url);
+  a.loop = true;
+  a.volume = vol;
+  a.preload = "auto";
+  return a;
+}
+const bgmMenu = makeBgm(bgmMenuUrl, 0.4);
+const bgmGame = makeBgm(bgmGameUrl, 0.7);
+const bgmDual = makeBgm(bgmDualUrl, 0.7);
+const bgmOver = makeBgm(bgmOverUrl, 0.5);
 const allBgm = [bgmMenu, bgmGame, bgmDual, bgmOver];
 const clickSfx = new Audio(clickUrl);
 clickSfx.volume = 0.6;
@@ -63,7 +62,9 @@ function stopAllBgm() {
 
 function playBgm(track: HTMLAudioElement) {
   stopAllBgm();
-  track.play().catch(() => {});
+  track.currentTime = 0;
+  const p = track.play();
+  if (p) p.catch((e) => console.warn("BGM play blocked:", e));
 }
 
 // --- Tab switching ---
@@ -191,9 +192,9 @@ const cursors: [Cursor, Cursor] = [
   { x: 0.5, y: 0.5, active: false },
 ];
 
-const BLINK_FIRE = 0.4;
-const BLINK_RESET = 0.2;
-const SHOT_COOLDOWN_MS = 220;
+const BLINK_FIRE = 0.25;
+const BLINK_RESET = 0.12;
+const SHOT_COOLDOWN_MS = 180;
 const blink = { closed: false, lastShotAt: -Infinity, score: 0 };
 
 type Shot = { x: number; y: number; t: number; hit: boolean };
