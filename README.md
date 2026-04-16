@@ -23,13 +23,13 @@
 
 ## Screenshots
 
-### Main menu
-
-![Bang Zombie main menu](assets/images/bang-zombie-menu.png)
-
 ### Gameplay
 
 ![Bang Zombie gameplay](assets/images/bang-zombie-gameplay.png)
+
+### Game over
+
+![Bang Zombie game over](assets/images/bang-zombie-gameover.png)
 
 ### Ranking
 
